@@ -1,7 +1,6 @@
 //SPDX-License-Identifier: MIT
 pragma solidity 0.8.7;
 
-
 /* Goal of the Smart contract */
 
 /*
@@ -39,65 +38,120 @@ contract RolebasedMultisig {
         address[] signers;
         bytes data;
         address to;
-        uint value;
-        uint depositedAmount;
+        uint256 value;
+        uint256 depositedAmount;
     }
-
+    //Contract Owner
     address owner; // we can use special priviliges by the platform - Features to be added for it
+
+    //Contract Constructor
     constructor() public {
         owner = msg.sender;
     }
-    /* Events */
+
+    // Contract Events
     event Executed(bytes32 txHash);
     event RoleUpdated(address user, bytes32 newRole);
 
-    function proposeTransaction(bytes32 txHash, address[] memory potentialSigners, address to, uint value, bytes memory data) public {
-        require(potentialSigners.length == 3, "Three potential signers are required");
-        transactions[txHash] = Transaction(potentialSigners, new address[](0), data, to, value,0);
+    // Function to propose a transaction
+    function proposeTransaction(
+        bytes32 txHash,
+        address[] memory potentialSigners,
+        address to,
+        uint256 value,
+        bytes memory data
+    ) public {
+        // Check if there are three potential signers
+        require(
+            potentialSigners.length == 3,
+            "Three potential signers are required"
+        );
+        // Store the transaction details in the mapping
+        transactions[txHash] = Transaction(
+            potentialSigners,
+            new address[](0),
+            data,
+            to,
+            value,
+            0
+        );
     }
 
+    // Function to set a role for a user
     function setRole(address user, bytes32 role) public {
+        // Check if the caller is an admin
         require(admins[msg.sender], "Only the admin can set roles");
-        if(role=="admin"){
-            admins[msg.sender]=true;
+        // Update the role of the user
+        if (role == "admin") {
+            admins[msg.sender] = true;
+        } else if (role == "manager") {
+            managers[msg.sender] = true;
         }
-        else if(role=="manager"){
-            managers[msg.sender]=true;
-        }
-            
     }
-  function addressExists(address[] memory _arr, address _address) internal view returns (bool) {
-        for (uint i = 0; i < _arr.length; i++) {
+
+    // Internal function to check if an address exists in an array
+    function addressExists(address[] memory _arr, address _address)
+        internal
+        view
+        returns (bool)
+    {
+        for (uint256 i = 0; i < _arr.length; i++) {
             if (_arr[i] == _address) {
                 return true;
             }
         }
         return false;
     }
+
     function confirmTransaction(bytes32 txHash) public payable {
         require(msg.value > 0, "Sender must send some amount");
-        require(addressExists(transactions[txHash].potentialSigners,msg.sender), "Sender is not a potential signer for this transaction");
-        require(!addressExists(transactions[txHash].signers,msg.sender), "Sender has already signed this transaction");
+        // Someone can confirm the transaction only if they are one of the potential signers
+        require(
+            addressExists(transactions[txHash].potentialSigners, msg.sender),
+            "Sender is not a potential signer for this transaction"
+        );
+        // The transaction should not be repeatedly signed by same person
+        require(
+            !addressExists(transactions[txHash].signers, msg.sender),
+            "Sender has already signed this transaction"
+        );
+        // Add caller tp the signer of the transaction
         transactions[txHash].signers.push(msg.sender);
+        // Update the transaction amount that is depostited
         transactions[txHash].depositedAmount += msg.value;
+        // if we have 2 out of 3 signers , we can execute the transaction
         if (transactions[txHash].signers.length >= 2) {
             executeTransaction(txHash);
         }
     }
 
+    // deposit funds to the contract so that it can transfer the needed amount in the transaction having transaction hash as txHash
+
     function deposit(bytes32 txHash) public payable {
-        require(transactions[txHash].potentialSigners.length > 0, "Transaction not found");
-        require(  msg.value >= 0, "Deposit amount must be equal or greater than the transaction value");
+        // Depositor must be a potential Signer
+        require(
+            transactions[txHash].potentialSigners.length > 0,
+            "Transaction not found"
+        );
+        // Any amount other than zero
+        require(
+            msg.value >= 0,
+            "Deposit amount must be equal or greater than the transaction value"
+        );
         transactions[txHash].depositedAmount += msg.value;
     }
 
     function executeTransaction(bytes32 txHash) internal {
         // Check if enough signers have signed the transaction
-        require(transactions[txHash].signers.length >= 2, "Two or more signers are required to execute the transaction");
+        require(
+            transactions[txHash].signers.length >= 2,
+            "Two or more signers are required to execute the transaction"
+        );
         // Check if there is at least one admin and one manager among the signers
         bool adminFound = false;
         bool managerFound = false;
-        for (uint i = 0; i < transactions[txHash].signers.length; i++) {
+
+        for (uint256 i = 0; i < transactions[txHash].signers.length; i++) {
             if (admins[transactions[txHash].signers[i]]) {
                 adminFound = true;
             } else if (managers[transactions[txHash].signers[i]]) {
@@ -107,33 +161,37 @@ contract RolebasedMultisig {
                 break;
             }
         }
-        require(adminFound && managerFound, "Transaction requires at least one admin and one manager among the signers");
+        require(
+            adminFound && managerFound,
+            "Transaction requires at least one admin and one manager among the signers"
+        );
         // Check if the signers have deposited enough funds for the transaction
-        uint fundsDeposited=transactions[txHash].depositedAmount;
+        uint256 fundsDeposited = transactions[txHash].depositedAmount;
 
-require(transactions[txHash].value <=fundsDeposited , "Signers do not have enough funds to execute the transaction");
+        require(
+            transactions[txHash].value <= fundsDeposited,
+            "Signers do not have enough funds to execute the transaction"
+        );
 
-// Execute the transaction
-bytes memory data = transactions[txHash].data;
-address destination = transactions[txHash].to;
-(bool success,) = destination.call(data);
-require(success, "Transaction execution failed");
-        
-emit Executed(txHash);
-}
+        // Execute the transaction
+        bytes memory data = transactions[txHash].data;
+        address destination = transactions[txHash].to;
+        (bool success, ) = destination.call(data);
+        require(success, "Transaction execution failed");
 
-function updateRole(address user, bytes32 newRole) public {
-    require(admins[msg.sender],"Only admin can update Role");
-        if(newRole=="admin"){
-            admins[user]=true;
+        emit Executed(txHash);
+    }
+
+    function updateRole(address user, bytes32 newRole) public {
+        require(admins[msg.sender], "Only admin can update Role");
+        if (newRole == "admin") {
+            admins[user] = true;
+        } else if (newRole == "manager") {
+            managers[user] = true;
+        } else {
+            require(false, "Invalid Role");
         }
-        else if(newRole=="manager"){
-            managers[user]=true;
-        }else{
-            require(false,"Invalid Role");
-        }
 
-    emit RoleUpdated(user, newRole);
-
-}
+        emit RoleUpdated(user, newRole);
+    }
 }
